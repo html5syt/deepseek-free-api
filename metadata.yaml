@@ -1,0 +1,11 @@
+name: "deepseek-free-api"
+author: "Mr. Tim"
+display_name: "Deepseek Free API"
+description: >
+  A local OpenAI-compatible API server plugin for AstrBot that proxies requests to
+  DeepSeek's web API without requiring an official API key. Supports streaming and
+  non-streaming chat completions, deep-thinking (R1) mode, web search mode, expert
+  mode, token validation, and automatic DeepSeek session continuity per AstrBot
+  conversation (unified_msg_origin binding).
+version: "1.0.4"
+repo: "https://github.com/html5syt/deepseek-free-api"
