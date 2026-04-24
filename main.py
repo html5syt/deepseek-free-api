@@ -140,7 +140,7 @@ def _cookie() -> str:
 
 def _solve_pow(
     algorithm: str,
-    challenge: str,  # noqa: ARG001 – kept for future verification parity
+    challenge: str,  # included in the signed response sent to DeepSeek for server-side verification
     salt: str,
     difficulty: int,
     expire_at: int,
@@ -490,7 +490,7 @@ class DeepSeekClient:
                 p.update(extra)
             return p
 
-        rand_ms = lambda: random.randint(0, 999)  # noqa: E731
+        rand_ms = lambda: random.randint(0, 999)  # noqa: E731 – local inline helper
         return [
             {
                 "session_id": fake_session,
@@ -564,7 +564,7 @@ class DeepSeekClient:
                 "session_id": fake_session,
                 "client_timestamp_ms": ts + 500 + rand_ms(),
                 "event_name": "completionApiOk",
-                "event_message": "完成响应，响应有正常的的 finish reason",
+                "event_message": "完成响应，响应有正常的 finish reason",
                 "payload": base_payload(
                     {
                         "__location": f"https://chat.deepseek.com/a/chat/s/{ref_conv}",
@@ -665,7 +665,7 @@ class DeepSeekClient:
     ) -> dict:
         """Return a full (non-streaming) chat completion dict."""
         try:
-            if not self._valid_conv_id(ref_conv_id):
+            if not self.valid_conv_id(ref_conv_id):
                 ref_conv_id = None
 
             prompt = (
@@ -749,7 +749,7 @@ class DeepSeekClient:
     ) -> AsyncGenerator[bytes, None]:
         """Yield SSE bytes in OpenAI-compatible format."""
         try:
-            if not self._valid_conv_id(ref_conv_id):
+            if not self.valid_conv_id(ref_conv_id):
                 ref_conv_id = None
 
             prompt = (
@@ -804,13 +804,13 @@ class DeepSeekClient:
                     error_msg = (
                         "服务暂时不可用，第三方响应错误"
                     )
-                    yield self._sse_chunk(
+                    yield self.sse_chunk(
                         "",
                         model,
                         {"role": "assistant", "content": error_msg},
                         finish_reason=None,
                     )
-                    yield self._sse_done_chunk("", model)
+                    yield self.sse_done_chunk("", model)
                     yield b"data: [DONE]\n\n"
                     return
 
@@ -938,7 +938,7 @@ class DeepSeekClient:
                     if data_str == "[DONE]":
                         # Finalize fold tag
                         if is_fold and thinking_started:
-                            yield self._sse_chunk(
+                            yield self.sse_chunk(
                                 f"{session_id}@{message_id}",
                                 model,
                                 {"content": "</pre></details>"},
@@ -948,12 +948,12 @@ class DeepSeekClient:
                             search_results, is_search_silent
                         )
                         if citations_text:
-                            yield self._sse_chunk(
+                            yield self.sse_chunk(
                                 f"{session_id}@{message_id}",
                                 model,
                                 {"content": citations_text},
                             )
-                        yield self._sse_done_chunk(
+                        yield self.sse_done_chunk(
                             f"{session_id}@{message_id}", model
                         )
                         yield b"data: [DONE]\n\n"
@@ -1045,30 +1045,30 @@ class DeepSeekClient:
                                 delta["content"] = content
 
                         if delta:
-                            yield self._sse_chunk(
+                            yield self.sse_chunk(
                                 f"{session_id}@{message_id}", model, delta
                             )
 
         # Stream ended without [DONE]
         if is_fold and thinking_started:
-            yield self._sse_chunk(
+            yield self.sse_chunk(
                 f"{session_id}@{message_id}",
                 model,
                 {"content": "</pre></details>"},
             )
         citations_text = self._build_citations(search_results, is_search_silent)
         if citations_text:
-            yield self._sse_chunk(
+            yield self.sse_chunk(
                 f"{session_id}@{message_id}", model, {"content": citations_text}
             )
-        yield self._sse_done_chunk(f"{session_id}@{message_id}", model)
+        yield self.sse_done_chunk(f"{session_id}@{message_id}", model)
         yield b"data: [DONE]\n\n"
 
     # ------------------------------------------------------------------
     # SSE formatting helpers
     # ------------------------------------------------------------------
 
-    def _sse_chunk(
+    def sse_chunk(
         self,
         completion_id: str,
         model: str,
@@ -1086,8 +1086,8 @@ class DeepSeekClient:
         }
         return f"data: {json.dumps(payload)}\n\n".encode()
 
-    def _sse_done_chunk(self, completion_id: str, model: str) -> bytes:
-        return self._sse_chunk(
+    def sse_done_chunk(self, completion_id: str, model: str) -> bytes:
+        return self.sse_chunk(
             completion_id, model, {}, finish_reason="stop"
         )
 
@@ -1096,7 +1096,7 @@ class DeepSeekClient:
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _valid_conv_id(conv_id: Optional[str]) -> bool:
+    def valid_conv_id(conv_id: Optional[str]) -> bool:
         if not conv_id:
             return False
         return bool(re.match(r"[0-9a-z\-]{36}@\d+", conv_id))
@@ -1437,7 +1437,7 @@ class DeepSeekFreeAPI(star.Star):
                             umo = pending["umo"]
                             # Use stored conv_id from DB if caller didn't
                             # supply one (or supplied an invalid one)
-                            if not self._ds_client._valid_conv_id(conv_id):
+                            if not self._ds_client.valid_conv_id(conv_id):
                                 conv_id = pending["conv_id"]
                         # Strip the nonce marker so DeepSeek doesn't see it
                         msg["content"] = re.sub(
@@ -1483,13 +1483,13 @@ class DeepSeekFreeAPI(star.Star):
                         try:
                             evt = json.loads(chunk[5:].strip())
                             cid = evt.get("id", "")
-                            if self._ds_client._valid_conv_id(cid):
+                            if self._ds_client.valid_conv_id(cid):
                                 new_conv_id = cid
                         except Exception:
                             pass
             except Exception as exc:
                 logger.error(f"[deepseek-free-api] stream error: {exc}")
-                err_chunk = self._ds_client._sse_chunk(
+                err_chunk = self._ds_client.sse_chunk(
                     "", model, {"content": f"Error: {exc}"}, finish_reason="stop"
                 )
                 await sr.write(err_chunk)
@@ -1514,7 +1514,7 @@ class DeepSeekFreeAPI(star.Star):
         # Update UMO→conv_id mapping
         if umo:
             new_cid = result.get("id", "")
-            if self._ds_client._valid_conv_id(new_cid):
+            if self._ds_client.valid_conv_id(new_cid):
                 self._store.set(umo, new_cid)
 
         return web.json_response(result)
