@@ -180,6 +180,26 @@ def _solve_pow_exact_match(
     return None
 
 
+def _coerce_int_answer(value: object) -> Optional[int]:
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value if value >= 0 else None
+    if isinstance(value, float):
+        iv = int(value)
+        return iv if iv >= 0 else None
+    try:
+        text = str(value).strip()
+        if not text:
+            return None
+        iv = int(text)
+        return iv if iv >= 0 else None
+    except Exception:
+        return None
+
+
 def _solve_pow(
     algorithm: str,
     challenge: str,  # included in the signed response sent to DeepSeek for server-side verification
@@ -191,37 +211,51 @@ def _solve_pow(
     if algorithm != "DeepSeekHashV1":
         raise ValueError(f"Unsupported PoW algorithm: {algorithm}")
 
-    # Strategy 1: current Python behavior (sha3 + leading zero bits)
+    diff = int(difficulty)
+    exp = int(expire_at)
+
+    # Fu-Jie compatible quick path: exact-match solver should run first.
+    # Some challenge variants are not leading-zero puzzles.
+    exact_scan_max = 2_000_000
+    if diff > 0 and diff <= exact_scan_max:
+        ans = _solve_pow_exact_match(
+            algo="sha256",
+            challenge=challenge,
+            salt=salt,
+            difficulty=diff,
+            expire_at=exp,
+        )
+        if ans is not None:
+            logger.info("[deepseek-free-api] PoW solved by exact-match sha256")
+            return ans
+
+        ans = _solve_pow_exact_match(
+            algo="sha3",
+            challenge=challenge,
+            salt=salt,
+            difficulty=diff,
+            expire_at=exp,
+        )
+        if ans is not None:
+            logger.info("[deepseek-free-api] PoW solved by exact-match sha3")
+            return ans
+
+    # Python fallback: sha3 leading-zero-bits search.
+    # Increase the limit moderately to reduce false negatives.
     ans = _solve_pow_sha3_leading_zero(
         salt=salt,
-        difficulty=int(difficulty),
-        expire_at=int(expire_at),
+        difficulty=diff,
+        expire_at=exp,
+        limit=50_000_000,
     )
     if ans is not None:
+        logger.info("[deepseek-free-api] PoW solved by sha3 leading-zero search")
         return ans
 
-    # Strategy 2: Fu-Jie worker-compatible fallback (sha256 exact match)
-    ans = _solve_pow_exact_match(
-        algo="sha256",
-        challenge=challenge,
-        salt=salt,
-        difficulty=int(difficulty),
-        expire_at=int(expire_at),
+    logger.warning(
+        "[deepseek-free-api] PoW unsolved "
+        f"(algorithm={algorithm}, difficulty={diff}, challenge_len={len(str(challenge))})"
     )
-    if ans is not None:
-        return ans
-
-    # Strategy 3: protocol drift fallback (sha3 exact match)
-    ans = _solve_pow_exact_match(
-        algo="sha3",
-        challenge=challenge,
-        salt=salt,
-        difficulty=int(difficulty),
-        expire_at=int(expire_at),
-    )
-    if ans is not None:
-        return ans
-
     raise RuntimeError("DeepSeek PoW: failed to find solution within limit")
 
 
@@ -232,13 +266,29 @@ def _build_pow_response(challenge_data: dict, target_path: str) -> str:
     expire_at = challenge_data.get("expire_at", challenge_data.get("expireAt"))
     if expire_at is None:
         raise KeyError("expire_at")
-    answer = _solve_pow(
-        algorithm=challenge_data["algorithm"],
-        challenge=challenge_data["challenge"],
-        salt=challenge_data["salt"],
-        difficulty=challenge_data["difficulty"],
-        expire_at=int(expire_at),
+
+    logger.info(
+        "[deepseek-free-api] PoW challenge received "
+        f"(algorithm={challenge_data.get('algorithm')}, "
+        f"difficulty={challenge_data.get('difficulty')}, "
+        f"target={target_path})"
     )
+
+    # Some challenge responses may include a precomputed answer.
+    answer = _coerce_int_answer(challenge_data.get("answer"))
+    if answer is None:
+        answer = _solve_pow(
+            algorithm=challenge_data["algorithm"],
+            challenge=challenge_data["challenge"],
+            salt=challenge_data["salt"],
+            difficulty=challenge_data["difficulty"],
+            expire_at=int(expire_at),
+        )
+    else:
+        logger.info(
+            "[deepseek-free-api] PoW used precomputed answer from challenge payload"
+        )
+
     payload = {
         "algorithm": challenge_data["algorithm"],
         "challenge": challenge_data["challenge"],
