@@ -1419,38 +1419,38 @@ class DeepSeekFreeAPI(star.Star):
         conv_id: Optional[str] = body.get("conversation_id")
         umo: Optional[str] = None
 
-            # Detect AstrBot-sourced requests via a dedicated header
-            astrbot_header = request.headers.get("X-from-which-astrbot", "")
-            if self._client_identifier and astrbot_header and self._client_identifier in astrbot_header:
-                # This request came from AstrBot; extract the nonce marker
-                for msg in body.get("messages", []):
-                    if msg.get("role") == "system":
-                        content = msg.get("content", "")
-                        nonce_match = re.search(
-                            re.escape(_NONCE_MARKER_PREFIX)
-                            + r"([0-9a-f]+)"
-                            + re.escape(_NONCE_MARKER_SUFFIX),
-                            content,
-                        )
-                        if nonce_match:
-                            nonce = nonce_match.group(1)
-                            pending = self._pending.pop(nonce, None)
-                            if pending:
-                                umo = pending["umo"]
-                                # Use stored conv_id from DB if caller didn't
-                                # supply one (or supplied an invalid one)
-                                if not self._ds_client.valid_conv_id(conv_id):
-                                    conv_id = pending["conv_id"]
-                        # Strip the nonce marker so DeepSeek doesn't see it
-                        msg["content"] = re.sub(
-                            re.escape(_NONCE_MARKER_PREFIX)
-                            + r"[0-9a-f]+"
-                            + re.escape(_NONCE_MARKER_SUFFIX)
-                            + r"\n?",
-                            "",
-                            content,
-                        ).strip()
-                    break
+        # Detect AstrBot-sourced requests via a dedicated header
+        astrbot_header = request.headers.get("X-from-which-astrbot", "")
+        if self._client_identifier and astrbot_header and self._client_identifier in astrbot_header:
+            # This request came from AstrBot; extract the nonce marker
+            for msg in body.get("messages", []):
+                if msg.get("role") == "system":
+                    content = msg.get("content", "")
+                    nonce_match = re.search(
+                        re.escape(_NONCE_MARKER_PREFIX)
+                        + r"([0-9a-f]+)"
+                        + re.escape(_NONCE_MARKER_SUFFIX),
+                        content,
+                    )
+                    if nonce_match:
+                        nonce = nonce_match.group(1)
+                        pending = self._pending.pop(nonce, None)
+                        if pending:
+                            umo = pending["umo"]
+                            # Use stored conv_id from DB if caller didn't
+                            # supply one (or supplied an invalid one)
+                            if not self._ds_client.valid_conv_id(conv_id):
+                                conv_id = pending["conv_id"]
+                    # Strip the nonce marker so DeepSeek doesn't see it
+                    msg["content"] = re.sub(
+                        re.escape(_NONCE_MARKER_PREFIX)
+                        + r"[0-9a-f]+"
+                        + re.escape(_NONCE_MARKER_SUFFIX)
+                        + r"\n?",
+                        "",
+                        content,
+                    ).strip()
+                break
 
         model = str(body.get("model", _MODEL_NAME)).lower()
         messages: list[dict] = body.get("messages", [])
