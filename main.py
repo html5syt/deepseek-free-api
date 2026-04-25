@@ -166,12 +166,17 @@ def _solve_pow(
 
 def _build_pow_response(challenge_data: dict, target_path: str) -> str:
     """Solve the challenge and return the base64-encoded JSON response."""
+    # DeepSeek has changed PoW field names in some releases (expireAt/expire_at).
+    # Normalize here so upstream protocol drift does not break requests.
+    expire_at = challenge_data.get("expire_at", challenge_data.get("expireAt"))
+    if expire_at is None:
+        raise KeyError("expire_at")
     answer = _solve_pow(
         algorithm=challenge_data["algorithm"],
         challenge=challenge_data["challenge"],
         salt=challenge_data["salt"],
         difficulty=challenge_data["difficulty"],
-        expire_at=challenge_data["expire_at"],
+        expire_at=int(expire_at),
     )
     payload = {
         "algorithm": challenge_data["algorithm"],
@@ -334,10 +339,51 @@ class DeepSeekClient:
             timeout=aiohttp.ClientTimeout(total=15),
         ) as resp:
             data = await resp.json(content_type=None)
-        challenge = self._check_result(data, refresh_token)["challenge"]
+
+        checked = self._check_result(data, refresh_token)
+        challenge = self._extract_pow_challenge(checked)
+        if challenge is None:
+            # Some responses wrap payload differently; try raw response as fallback.
+            challenge = self._extract_pow_challenge(data)
+        if challenge is None:
+            keys_checked = list(checked.keys()) if isinstance(checked, dict) else []
+            keys_raw = list(data.keys()) if isinstance(data, dict) else []
+            raise RuntimeError(
+                "create_pow_challenge: missing challenge payload "
+                f"(checked_keys={keys_checked}, raw_keys={keys_raw})"
+            )
+
         return await asyncio.get_event_loop().run_in_executor(
             None, _build_pow_response, challenge, target_path
         )
+
+    @staticmethod
+    def _extract_pow_challenge(payload: dict | None) -> Optional[dict]:
+        """Extract PoW challenge object from known response shapes."""
+        if not isinstance(payload, dict):
+            return None
+
+        # Shape A: {"challenge": {...}}
+        challenge = payload.get("challenge")
+        if isinstance(challenge, dict):
+            return challenge
+
+        # Shape B: challenge fields are flattened at top-level
+        required = ("algorithm", "challenge", "salt", "difficulty", "signature")
+        has_required = all(k in payload for k in required)
+        has_expire = ("expire_at" in payload) or ("expireAt" in payload)
+        if has_required and has_expire:
+            return payload
+
+        # Shape C: nested wrappers
+        for key in ("data", "biz_data", "result"):
+            nested = payload.get(key)
+            if isinstance(nested, dict):
+                extracted = DeepSeekClient._extract_pow_challenge(nested)
+                if extracted is not None:
+                    return extracted
+
+        return None
 
     # ------------------------------------------------------------------
     # Thinking quota
@@ -710,7 +756,7 @@ class DeepSeekClient:
                     "Authorization": f"Bearer {token}",
                     **_FAKE_HEADERS,
                     "Cookie": _cookie(),
-                    "X-Ds-Pow-Response": pow_header,
+                    **({"X-Ds-Pow-Response": pow_header} if pow_header else {}),
                 },
                 timeout=aiohttp.ClientTimeout(total=120),
             ) as resp:
@@ -794,7 +840,7 @@ class DeepSeekClient:
                     "Authorization": f"Bearer {token}",
                     **_FAKE_HEADERS,
                     "Cookie": _cookie(),
-                    "X-Ds-Pow-Response": pow_header,
+                    **({"X-Ds-Pow-Response": pow_header} if pow_header else {}),
                 },
                 timeout=aiohttp.ClientTimeout(total=120),
             ) as resp:
