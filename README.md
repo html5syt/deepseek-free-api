@@ -85,7 +85,7 @@ curl -X POST http://127.0.0.1:5566/v1/chat/completions \
 ## 配置项
 
 - `port`（int）：HTTP 服务监听端口，默认 `5566`。
-- `client_identifier`（str）：若配置此字符串，插件会在 AstrBot 发送的请求中注入 nonce，以便在服务端建立 UMO → DeepSeek 会话映射。
+- `client_identifier`（str）：若配置此字符串，AstrBot 会在请求头 `X-from-which-astrbot` 中包含该标识，插件将检测此请求头并在请求中注入 nonce，以便在服务端建立 UMO → DeepSeek 会话映射。
 - `deepseek_token`（str， 可选）：插件级别的 DeepSeek refresh_token，用于覆盖请求头中的 Authorization 值（可选）。
 
 这些配置会在 AstrBot Web UI 中以插件配置项的形式展示（插件初始化时调用 `put_config` 注册）。

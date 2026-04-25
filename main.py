@@ -17,10 +17,10 @@ Features
 Configuration (AstrBot plugin config)
 --------------------------------------
 * port             : int  – local server port (default 5566)
-* client_identifier: str  – opaque string that clients embed in the
-                            Authorization header to signal they are
-                            AstrBot-sourced requests; when present the
-                            plugin tracks the DeepSeek session per UMO.
+* client_identifier: str  – opaque string that clients set in the
+                            `X-from-which-astrbot` request header to signal
+                            they are AstrBot-sourced requests; when present
+                            the plugin tracks the DeepSeek session per UMO.
 * deepseek_token   : str  – optional DeepSeek refresh-token override
                             (overrides the Authorization header value
                             sent by the caller)
@@ -1419,26 +1419,28 @@ class DeepSeekFreeAPI(star.Star):
         conv_id: Optional[str] = body.get("conversation_id")
         umo: Optional[str] = None
 
-        if self._client_identifier and self._client_identifier in authorization:
-            # This request came from AstrBot; extract the nonce marker
-            for msg in body.get("messages", []):
-                if msg.get("role") == "system":
-                    content = msg.get("content", "")
-                    nonce_match = re.search(
-                        re.escape(_NONCE_MARKER_PREFIX)
-                        + r"([0-9a-f]+)"
-                        + re.escape(_NONCE_MARKER_SUFFIX),
-                        content,
-                    )
-                    if nonce_match:
-                        nonce = nonce_match.group(1)
-                        pending = self._pending.pop(nonce, None)
-                        if pending:
-                            umo = pending["umo"]
-                            # Use stored conv_id from DB if caller didn't
-                            # supply one (or supplied an invalid one)
-                            if not self._ds_client.valid_conv_id(conv_id):
-                                conv_id = pending["conv_id"]
+            # Detect AstrBot-sourced requests via a dedicated header
+            astrbot_header = request.headers.get("X-from-which-astrbot", "")
+            if self._client_identifier and astrbot_header and self._client_identifier in astrbot_header:
+                # This request came from AstrBot; extract the nonce marker
+                for msg in body.get("messages", []):
+                    if msg.get("role") == "system":
+                        content = msg.get("content", "")
+                        nonce_match = re.search(
+                            re.escape(_NONCE_MARKER_PREFIX)
+                            + r"([0-9a-f]+)"
+                            + re.escape(_NONCE_MARKER_SUFFIX),
+                            content,
+                        )
+                        if nonce_match:
+                            nonce = nonce_match.group(1)
+                            pending = self._pending.pop(nonce, None)
+                            if pending:
+                                umo = pending["umo"]
+                                # Use stored conv_id from DB if caller didn't
+                                # supply one (or supplied an invalid one)
+                                if not self._ds_client.valid_conv_id(conv_id):
+                                    conv_id = pending["conv_id"]
                         # Strip the nonce marker so DeepSeek doesn't see it
                         msg["content"] = re.sub(
                             re.escape(_NONCE_MARKER_PREFIX)

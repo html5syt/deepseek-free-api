@@ -51,7 +51,7 @@ Combine keywords freely, e.g. `deepseek-expert-r1-search`.
 ## Configuration (plugin)
 
 - `port` — HTTP port (default `5566`)
-- `client_identifier` — when set, enables AstrBot UMO binding via nonce markers
+- `client_identifier` — when set, AstrBot will include this string in the `X-from-which-astrbot` request header; the plugin detects this header to enable UMO→DeepSeek session binding and injects a nonce into system prompts.
 - `deepseek_token` — optional plugin-level DeepSeek refresh token to override incoming Authorization
 
 ## Persistence
