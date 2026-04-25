@@ -130,12 +130,54 @@ def _cookie() -> str:
 
 
 # ---------------------------------------------------------------------------
-# DeepSeek PoW solver (pure Python port of the WASM-backed TypeScript impl)
-# The DeepSeekHashV1 algorithm:
-#   Find the smallest non-negative integer `answer` such that
-#   SHA3-256( f"{salt}_{expire_at}_{answer}" ) has >= `difficulty` leading
-#   zero bits.
+# DeepSeek PoW solver (pure Python compatibility implementation).
+#
+# Notes:
+# - Fu-Jie original implementation uses a WASM solver (DeepSeekHash) in Node.
+# - To stay Python-only, we use a multi-strategy fallback:
+#   1) sha3 leading-zero-bits search (legacy behavior in this repo)
+#   2) sha256 exact-match scan in [0, difficulty) (compatible with older worker logic)
+#   3) sha3 exact-match scan in [0, difficulty)
 # ---------------------------------------------------------------------------
+
+
+def _leading_zero_bits(raw_digest: bytes) -> int:
+    zero_bits = 0
+    for byte in raw_digest:
+        if byte == 0:
+            zero_bits += 8
+        else:
+            zero_bits += 8 - byte.bit_length()
+            break
+    return zero_bits
+
+
+def _solve_pow_sha3_leading_zero(
+    *, salt: str, difficulty: int, expire_at: int, limit: int = 10_000_000
+) -> Optional[int]:
+    prefix = f"{salt}_{expire_at}_"
+    for answer in range(limit):
+        digest = hashlib.sha3_256(f"{prefix}{answer}".encode()).digest()
+        if _leading_zero_bits(digest) >= difficulty:
+            return answer
+    return None
+
+
+def _solve_pow_exact_match(
+    *, algo: str, challenge: str, salt: str, difficulty: int, expire_at: int
+) -> Optional[int]:
+    # Fu-Jie/LLM-Red-Team worker-style fallback: scan [0, difficulty)
+    # and compare full hex digest to challenge.
+    if difficulty <= 0:
+        return None
+    prefix = f"{salt}_{expire_at}_"
+    challenge_lower = str(challenge).lower()
+    hasher = hashlib.sha256 if algo == "sha256" else hashlib.sha3_256
+    for answer in range(int(difficulty)):
+        digest_hex = hasher(f"{prefix}{answer}".encode()).hexdigest()
+        if digest_hex == challenge_lower:
+            return answer
+    return None
 
 
 def _solve_pow(
@@ -148,19 +190,38 @@ def _solve_pow(
     """Return the PoW answer integer (raises RuntimeError if unsolvable)."""
     if algorithm != "DeepSeekHashV1":
         raise ValueError(f"Unsupported PoW algorithm: {algorithm}")
-    prefix = f"{salt}_{expire_at}_"
-    for answer in range(10_000_000):
-        digest = hashlib.sha3_256(f"{prefix}{answer}".encode()).digest()
-        # Count leading zero bits
-        zero_bits = 0
-        for byte in digest:
-            if byte == 0:
-                zero_bits += 8
-            else:
-                zero_bits += 8 - byte.bit_length()
-                break
-        if zero_bits >= difficulty:
-            return answer
+
+    # Strategy 1: current Python behavior (sha3 + leading zero bits)
+    ans = _solve_pow_sha3_leading_zero(
+        salt=salt,
+        difficulty=int(difficulty),
+        expire_at=int(expire_at),
+    )
+    if ans is not None:
+        return ans
+
+    # Strategy 2: Fu-Jie worker-compatible fallback (sha256 exact match)
+    ans = _solve_pow_exact_match(
+        algo="sha256",
+        challenge=challenge,
+        salt=salt,
+        difficulty=int(difficulty),
+        expire_at=int(expire_at),
+    )
+    if ans is not None:
+        return ans
+
+    # Strategy 3: protocol drift fallback (sha3 exact match)
+    ans = _solve_pow_exact_match(
+        algo="sha3",
+        challenge=challenge,
+        salt=salt,
+        difficulty=int(difficulty),
+        expire_at=int(expire_at),
+    )
+    if ans is not None:
+        return ans
+
     raise RuntimeError("DeepSeek PoW: failed to find solution within limit")
 
 
