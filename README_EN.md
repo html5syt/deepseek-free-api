@@ -1,3 +1,67 @@
+# DeepSeek Free API — AstrBot plugin (English)
+
+Lightweight OpenAI-compatible HTTP proxy that forwards requests to DeepSeek's web API. Implemented as an AstrBot plugin, it starts a local HTTP server (default port 5566) when initialized. The implementation focuses on compatibility with DeepSeek web protocols: streaming SSE, deep-thinking (R1), search, expert mode, PoW challenge solving, and optional AstrBot session binding.
+Quick highlights:
+
+- OpenAI-compatible `/v1/chat/completions` (streaming/non-streaming)
+- `conversation_id`-based native multi-turn support
+- Model keywords: `expert`, `r1`/`think`, `search`, `-silent`, `-fold`
+- `/token/check` to verify DeepSeek `userToken`
+Repository files of interest:
+
+- `main.py` — core plugin implementation (DeepSeek client, SSE handling, HTTP endpoints)
+- `metadata.yaml` — plugin metadata
+- `requirements.txt` — Python dependencies
+
+## Quick start
+1. Install Python dependencies (recommended Python 3.9+):
+
+```bash
+pip install -r requirements.txt
+
+```
+2. Load as an AstrBot plugin. When AstrBot loads the plugin it calls `initialize()` which starts an HTTP server on the configured `port` (default `5566`).
+
+3. Example request (non-streaming):
+```bash
+curl -X POST http://127.0.0.1:5566/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer YOUR_USER_TOKEN" \
+  -d '{
+    "model": "deepseek-expert",
+    "messages": [{"role":"user","content":"Who are you?"}],
+    "stream": false
+  }
+```
+Response is OpenAI-compatible. Use the returned `id` as `conversation_id` for server-side multi-turn continuity.
+
+## HTTP endpoints
+- `GET /ping` — returns `pong`.
+- `GET /v1/models` — list of supported model IDs.
+- `POST /v1/chat/completions` — main chat endpoint. Requires `Authorization: Bearer <userToken[,userToken2,...]>` header.
+- `POST /token/check` — body `{ "token": "..." }` → `{ "live": true|false }`.
+
+## Model keywords
+- `deepseek` — default (maps to V4-Flash)
+- `deepseek-expert` — V4-Pro (expert mode)
+- `deepseek-r1` — deep thinking / R1
+- `deepseek-search` — search-enabled
+
+Combine keywords freely, e.g. `deepseek-expert-r1-search`.
+## Configuration (plugin)
+
+- `port` — HTTP port (default `5566`)
+- `client_identifier` — when set, enables AstrBot UMO binding via nonce markers
+- `deepseek_token` — optional plugin-level DeepSeek refresh token to override incoming Authorization
+
+## Persistence
+UMO → conversation_id mappings are stored in `plugin_data/deepseek_free_api/umo_conv.db` (SQLite) under AstrBot data directory.
+
+## Disclaimer
+This project uses a reverse-engineered web protocol. The behavior and protocol may change over time. Use for personal/research purposes only; do not expose the service publicly or for commercial use.
+
+---
+File updated: [README_EN.md](README_EN.md)
 # DeepSeek V4 Free Service (Continuous Maintenance)
 
 > **⚠️ Note**: The original project `llm-red-team/deepseek-free-api` is archived. This is a **maintained fork** designed to fix protocol incompatibilities (e.g., `ERR_INVALID_CHAR` and `FINISHED` code leakage) caused by official updates, ensuring continuous availability.
@@ -113,10 +177,6 @@ Emohaa API [emohaa-free-api](https://github.com/LLM-Red-Team/emohaa-free-api)
 **Reverse-engineered APIs are unstable. It is recommended to use the official DeepSeek API at <https://platform.deepseek.com/> to avoid the risk of being banned.**
 
 **This organization and individuals do not accept any donations or transactions. This project is purely for research and learning purposes!**
-
-**For personal use only. Do not provide services or commercial use to avoid putting pressure on the official service. Use at your own risk!**
-
-**For personal use only. Do not provide services or commercial use to avoid putting pressure on the official service. Use at your own risk!**
 
 **For personal use only. Do not provide services or commercial use to avoid putting pressure on the official service. Use at your own risk!**
 
