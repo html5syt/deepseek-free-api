@@ -1,0 +1,21 @@
+{
+  "port": {
+    "type": "int",
+    "description": "本地 HTTP 服务端口",
+    "hint": "插件启动后监听的端口，默认 5566。",
+    "default": 5566
+  },
+  "client_identifier": {
+    "type": "string",
+    "description": "客户端标识",
+    "hint": "当 Authorization 头包含该标识时，启用 AstrBot 会话与 DeepSeek 会话绑定。",
+    "default": ""
+  },
+  "deepseek_token": {
+    "type": "string",
+    "description": "DeepSeek Token（可选）",
+    "hint": "可选。填写后会覆盖请求头中的 Authorization Token。",
+    "default": "",
+    "obvious_hint": true
+  }
+}
